@@ -1,0 +1,59 @@
+#~~~~~~~~~~~~~~~~~~~
+#Plotting on map----
+#~~~~~~~~~~~~~~~~~~~
+
+library(sf)
+library(tmap)
+
+msoas <- st_read('data/spatial/sy_msoas.shp')
+
+coords <- do.call(rbind, st_geometry(st_centroid(msoas))) %>% data.frame
+
+#Add MSOA column, should be in same order
+coords$MSOA <- msoas$code
+
+#Merge in each point coordinate
+selectedPairs_w_coords <- left_join(selectedPairs, coords, by = c('Var1' = 'MSOA'))
+selectedPairs_w_coords <- left_join(selectedPairs_w_coords, coords, by = c('Var2' = 'MSOA'))
+
+#Change names here
+selectedPairs_w_coords <- selectedPairs_w_coords %>%
+  rename(var1_x = X1.x, var1_y =X2.x,
+         var2_x = X1.y, var2_y =X2.y
+  )
+
+#Make lines from those MSOAs
+linez <- list()
+for(i in 1:nrow(selectedPairs_w_coords)){
+  linez[[i]] <- st_linestring(rbind(  c(selectedPairs_w_coords$var1_x[i],selectedPairs_w_coords$var1_y[i]),c(selectedPairs_w_coords$var2_x[i],selectedPairs_w_coords$var2_y[i])))
+}
+
+#Create sf object
+linezcol <- st_sfc(linez)
+pairz = st_sf(selectedPairs_w_coords, geometry = linezcol)
+st_crs(pairz) <- 27700
+
+#Scale freq values from 0 to 1 for clearer plotting
+pairz <- pairz %>% 
+  mutate(normalisedCorrelationValues = (Freq-min(Freq))/(max(Freq)-min(Freq)))
+
+#MAPPING!
+#A few options.
+
+#Basic map:
+tmap_mode("plot")
+
+#Plot pairs over MSOAs
+tm_shape(msoas) + tm_borders() + tm_fill() + 
+  tm_shape(pairz) + tm_lines(alpha = 0.5, lwd = 'normalisedCorrelationValues', scale = 15,legend.lwd.show = F)
+
+#Make interactive version by changing mode
+tmap_mode("view")
+
+tm_shape(msoas) + tm_borders() + tm_fill(alpha = 0.5) + 
+  tm_shape(pairz) + tm_lines(alpha = 0.5, lwd = 'normalisedCorrelationValues', scale = 15,legend.lwd.show = F)
+
+
+
+
+

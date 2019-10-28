@@ -1,0 +1,22 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1572271134858.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "A2F6E061",
+    "lastKnownWriteTime" : 1533734236,
+    "last_content_update" : 1533734236,
+    "path" : "C:/Users/Dan Olner/Dropbox/SheffieldMethodsInstitute/Misc/CrimeDataProjectAug2018/mapping.R",
+    "project_path" : null,
+    "properties" : {
+        "cursorPosition" : "47,110",
+        "scrollLine" : "24"
+    },
+    "relative_order" : 3,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

@@ -1,0 +1,115 @@
+#diaglines
+library(tidyverse)
+library(sf)
+library(tmap)
+
+#Get example data.
+mapdata <- st_read('data/mapdata/sheffieldLSOAs_w_nonUKbornProportion.shp')
+
+#Sheffield proportion non-UK born
+plot(mapdata[,'nonUKprop'])
+
+
+#~~~~~~~~~~~~~~~~~~~
+#1. CREATE LINES----
+#~~~~~~~~~~~~~~~~~~~
+
+#Work out how many lines we want
+#For starters, can just use a certain number spread across the bounding box
+#left to right
+
+#Bounding box
+bboxvals <- st_bbox(mapdata)
+
+#If we're doing diagonal lines, we'll need to start them some way before that.
+#Diagonal makes equilateral triangle so distance back is just height of bbox.
+#Startpoint is in map coords so can use below also
+startpoint  = bboxvals['xmin'] - (bboxvals['ymax']-bboxvals['ymin'])
+
+#The range the lines will be spread across left to right
+linesrange = (bboxvals['xmax']-startpoint)
+
+#How many lines are we breaking up the line range into?
+# numlines = ((bboxvals['xmax']-startpoint)/200) %>% as.integer()
+numlines = (linesrange/200) %>% as.integer()
+
+#Each line step in map coordinate units
+#(slightly different from inverse of above as we converted to int)
+stepsize = linesrange/numlines
+
+
+#Make individual lines
+#(Not worrying about them being outside the bounding box)
+linez <- list()
+
+for(i in 1:numlines){
+  
+  print(i)
+  
+  #This line's start position along the top edge of the bounding box
+  #(Starting some way back to cover all of it)
+  startx = startpoint + (stepsize * i)
+  starty = bboxvals['ymin']#Projection shouldn't matter...? It'll be one way round or the other, same outcome?
+  
+  
+  #Just diagonal of equilateral triangle. We took off the height above
+  #So can start just at bottom left
+  endx = bboxvals['xmin'] + (stepsize * i)
+  endy = bboxvals['ymax']
+  
+  #Each line: xy1 then xy2
+  linez[[i]] <- st_linestring(rbind(  c(startx,starty),c(endx,endy)  ))
+  
+}
+
+#Create sf object
+linezcol <- st_sfc(linez)
+
+#Create dataframe to convert to sf object
+#One row per line feature
+linez.df <- data.frame(id = 1:numlines)
+
+linez.df = st_sf(linez.df, geometry = linezcol)
+st_crs(linez.df) <- st_crs(mapdata)#match CRS to data
+
+
+
+#Clip to bounding box
+# linez.df <- linez.df %>% st_intersection(st_bbox(mapdata))
+
+#or possibly don't bother as we'll be clipping in a moment anyway
+
+#Check they're in the same place... Tick
+plot(st_geometry(linez.df))
+plot(st_geometry(mapdata), col="RED",add=T)
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#2. CLIP LINES TO SOME FEATURE WE WANT TO HAVE MARKED WITH DIAGONAL LINES----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#Random example: x zones with highest proportion non-UK in Sheffield
+selected <- mapdata %>% arrange(-nonUKprop) %>% slice(1:10)
+plot(st_geometry(selected))
+
+#Use that to clip the diagonal lines
+overlay <- linez.df %>% st_intersection(selected)
+plot(st_geometry(overlay))
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#3. COMBINE INTO SINGLE MAP----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+x <- tm_shape(mapdata) +
+  tm_fill('nonUKprop', palette = 'RdBu', n=12) +
+  tm_shape(overlay) +
+  tm_lines(lwd = 1, legend.lwd.show = F)
+
+tmap_save(tm = x, filename = 'output/shefmap.png', width = 8, height = 7)
+
+
+
+
+

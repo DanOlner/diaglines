@@ -1,0 +1,345 @@
+#The goal:
+#total number of crimes per MSOA in South Yorkshire and LAD level for each month
+#Percent change from one month to next
+#Correlation matrix of percentage change: correlating time series of those
+
+#Load the tidyverse group of packages
+#This includes readr, dplyr, tidyr and lubridate - 
+#we'll use these to read files, reshape the loaded data and format dates
+library(tidyverse)
+library(lubridate)
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#1. LOAD SOUTH YORKSHIRE CRIME DATA INTO MEMORY AND COMBINE INTO SINGLE DATAFRAME----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#Having downloaded the South Yorkshire crime data
+#(Which is in separate folders for each month)
+#Into a location in your R project folder --
+#We want to:
+#a) find the file names in each folder
+#b) load all those files
+#c) combine them into a single file
+
+
+#We can load *single* files just like this:
+#(Note the underscore in read_csv)
+#Note also: use CTRL+SPACE to autocomplete filenames in your project folder
+#When the cursor is between the quote marks - saves loads of time
+examplefile <- read_csv('data/downloaded_sy_crime_data/2015-06/2015-06-south-yorkshire-street.csv')
+
+#Click on newly loaded dataframe in RStudio environment panel, top-right, to look at it.
+
+
+
+#But how to get all those files in separate folders?
+#First thing: get a list of their locations.
+#Then we can work with that list to load and combine them all.
+
+#"Path" will be to the folder the crime data is in.
+#"Recursive" tells list.files to look in subfolders - so it checks in each month folder
+#Pattern tells it only to look for csvs.
+#"Full names" set to True so it has the full path
+filelist <- list.files(path = "data/downloaded_sy_crime_data", recursive = T, pattern = '*.csv', full.names = T)
+
+#Have a look at what that function gave you.
+filelist
+
+#OK, we now want to load all of those into memory
+#And then combine them into a single dataframe
+
+#"lapply" tells R to apply each element of our filelist to the function on the right
+#Which is, again, read_csv - so we're just asking it to read_csv for each of the files
+#And store the result as a list (hence "lapply")
+loadedfiles <- lapply(filelist, read_csv)
+
+#You'll now see loadedfiles in the environment panel with 36 files.
+
+#And now to combine into single dataframe...
+#bind_rows is a dplyr function. Check with ?bind_rows
+sy_data <- bind_rows(loadedfiles)
+
+
+#Take a look at the single file via the environment panel...
+
+#While we're here: we want R to know that the 'month' column is a date.
+#In View, hover over the Month column. It says: 'column 2: character'
+#It's currently a character class column, we want it to be 'date' class:
+
+#https://github.com/tidyverse/lubridate/issues/630
+sy_data$Month <- ymd(sy_data$Month, truncated = 1)
+
+
+#That allows us to very quickly just look at how many crimes per month there were:
+ggplot(sy_data, aes(x = Month)) +
+  geom_bar()
+
+#Or break down by crime type
+ggplot(sy_data, aes(x = Month, fill = `Crime type`)) +
+  geom_bar()
+
+#Note: look in RStudio help / cheatsheets for a cheatsheet on using ggplot
+
+#OK, we have our data! We can save a copy of that single file if we want:
+write_csv(sy_data, 'data/southyorks_crimes_combined.csv')
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#2. MERGE IN GEOGRAPHICAL ZONE LOOKUP----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#I've sent you a lookup file that shows how 
+#LSOAs, MSOAs and local authority districts (LADs) nest into each other.
+#Because the crime data only has LSOAs
+#we'll use this to work out counts of crimes in MSOAs and LADs 
+
+#First, load the lookup. I've put it in the data folder.
+#This is for the whole of the UK so is a large file.
+lookup <- read_csv('data/oa_lookup2011.csv')
+
+#As usual, take a look at it via the environment panel.
+#We only want those columns with LSOA, MSOA and LAD codes and names in
+#So let's just select those.
+
+
+#We'll use the 'piping' operator to pipe the lookup into the 'select' function
+
+
+#quick primer on the piping operator----
+
+#Its looks like this: %>% 
+#The shortcut key is CTRL + SHIFT + M
+
+#Here's how it works.
+#Say you want to find the square root of 350.
+#You use the square root function:
+sqrt(350)
+
+#If you wanted to round that down you could use the round function
+#Just by putting the previous function straight in
+round(sqrt(350))
+
+#The piping operator makes this tidier
+#This is a kind of stupid example but it'll make sense later
+
+#We can *pipe* 350 into the sqrt function
+350 %>% sqrt()
+
+#We can also then build up a series of pipes
+#As we process our result. So we can then pipe into the rounding function
+350 %>% sqrt() %>% 
+  round()
+
+
+
+#Right! Back on with the task at hand
+#Pipe our lookup into the select function and
+#Assign the result back to lookup, overwriting it.
+#The colon tells select to select a range of columns
+lookup <- lookup %>%
+  select(LSOA11CD:LAD11NM)
+
+#We also have too many LSOA codes in the lookup as is has sub-geographies
+#So we just need unique LSOA codes
+#Note how the number of rows drops in the environment panel
+lookup <- lookup %>% distinct()
+
+#Check we have matches for LSOA codes between our two files
+#985 matches. One that doesn't match. We'll drop that one.
+table(unique(sy_data$`LSOA code`) %in% lookup$LSOA11CD)
+
+
+#Now we can merge those in using a left join.
+#Look at help / cheatcheets / data transformation with dplyr
+#To see what this is doing.
+#Basically, left_join will keep only the rows in the sy_data dataframe
+#So we'll only get the lookup rows for South Yorkshire
+
+#We'll make this a new variable so you can see the difference
+#Note it's the same number of rows as the original sy_data
+#But now has five extra columns
+sy_merge <- left_join(sy_data, lookup, by = c("LSOA code" = "LSOA11CD"))
+
+
+#Merge done! That was all the hard stuff, the rest is super-easy.
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#3. total number of crimes per MSOA in South Yorkshire----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#OK, now we can work with the data to find summaries of totals per crime
+#For whatever geographical unit we want that's been merged in.
+
+#So if we wanted to use the original LSOAs
+#and find out how many crimes were in each...
+
+#First, remind ourselves what the column names are.
+#Either look via the Environment panel or:
+names(sy_merge)
+
+#we can use LSOA code or name, doesn't matter
+#Note, if the column name has a space in
+#It needs surroundind with back-ticks (top-left of keyboard below escape)
+
+#n() just says "count the number of rows in each group.
+#We know we have one crime per row, so this is what we need.
+#When done, look at it via the Environment panel
+totalCrimes <- sy_merge %>% group_by(`LSOA code`) %>% 
+  summarise(num_crimes = n())
+
+
+#If we want a count of crimes per LSOA by *type of crime*
+#We can just add crime type as another group
+crimesByType <- sy_merge %>% group_by(`LSOA code`,`Crime type`) %>% 
+  summarise(num_crimes = n())
+
+
+#If we just want to pull out a single crime type
+#We can filter the data we just made...
+#Note DOUBLE EQUALS. This is a LOGICAL OPERATOR and tells R
+#To look for an exact match. Read here for other logical operators in R:
+#https://www.statmethods.net/management/operators.html
+#And always check spelling to matches - needs to be exact.
+drugCrimePerLSOA <- crimesByType %>% 
+  filter(`Crime type` == 'Drugs')
+
+
+#That filtering could have been done in a single line too.
+#E.g. like this
+drugCrimePerLSOA <- sy_merge %>% 
+  filter(`Crime type` == 'Drugs') %>% #filter line here before grouping
+  group_by(`LSOA code`,`Crime type`) %>% 
+  summarise(num_crimes = n())
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#THREE OTHER BITS YOU WILL NEED----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#Three things: 
+#1. creating lag values to find % change
+#2. Changing between long and wide data to prep for correlation matrix
+#3. Correlating!
+
+#~~~~~~~~~~~~~
+#1. USING LAG----
+#~~~~~~~~~~~~~
+
+#Later we will need to be finding the percentage change between months
+#Here's how to find % change just in the data we have
+#I'll let you try and apply this to months
+#Note: you'll have to make sure months are ordered by date.
+
+#But let's practice on drug crimes.
+#Mutate makes a NEW column
+
+#Random thing: drugCrimePerLSOA is still GROUPED - see grouped_df in its class description
+class(drugCrimePerLSOA)
+
+#Its needs ungrouping to find lag, otherwise it's trying to find lag in groups.
+drugCrimePerLSOA <- ungroup(drugCrimePerLSOA)
+
+#https://stackoverflow.com/questions/31352685/how-can-i-calculate-the-percentage-change-within-a-group-for-multiple-columns-in
+
+#So take a look at what it's doing here.
+#If we just use lag by itself, you can see it just
+#lags the value by one position. Look via Environment.
+lag_calc <- drugCrimePerLSOA %>%
+  mutate(lag = lag(num_crimes))
+  
+#We can use this lag calculation to get our percent change between rows:
+lag_calc <- drugCrimePerLSOA %>%
+  mutate(percent_lag = ((num_crimes - lag(num_crimes))/lag(num_crimes)) * 100)
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#2. CHANGING BETWEEN WIDE AND LONG DATA----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#To carry out the correlation / find a correlation matrix
+#We'll need each of the geographical zones in their own columns
+#With months in rows
+
+#Here's an image that shows the difference between wide and long data
+#https://lh3.googleusercontent.com/-oxOv7UPHkwg/WSIipBHKN2I/AAAAAAAAHJ4/YS6CDEddC6MWcjnDYJ4t4d88nlvH-Y2fgCHM/s1600-h/widelong%255B3%255D
+
+#At the moment, all geographical zones are in long form
+#i.e. there's a single column for 'Crime type' not a column for each type separately
+
+#So let's just show how to get long to wide form.
+#This uses the tidyr library that we loaded with tidyverse.
+
+#Look at the crimesByType dataframe again to remind us what it looks like.
+#What we want: each of those crime types in its own column
+#With each LSOA in its own row.
+
+#We tell the 'spread' function:
+#Use `Crime type` as the key - the types in this column will become their own columns
+#Use `num crimes` as the value in the cells
+#And set the fill value for any LSOAs that e.g. don't have any Bicycle Theft. 
+#That means there are no bike thefts so we set to zero.
+crimesByType_wide <- spread(crimesByType, key = `Crime type`, value = `num_crimes`, fill = 0)
+
+
+#~~~~~~~~~~~~~~~~~~~~~~
+#3. CORRELATION MATRIX----
+#~~~~~~~~~~~~~~~~~~~~~~
+
+#Practicing on the widened crimes type data
+#this is how to find a correlation matrix
+#For all crime types.
+#The 'cor' function does this and will find the correlation between 
+#ALL PAIRS OF COLUMNS
+
+
+#Note again we need to ungroup first.
+crimesByType_wide <- ungroup(crimesByType_wide)
+
+#FIND CORRELATION MATRIX
+#Note, we need to drop the LSOA column
+#so it doesn't try and correlate that with the others.
+our_cormatrix <- cor(crimesByType_wide %>% select(-`LSOA code`))
+
+
+#Look at it via View: note it has the correct column and row names
+#Unsurprisingly, crime numbers highly correlate - 
+#This is also due to the fact that we haven't controlled for each zone's size or population
+#That won't matter when correlating crime *change* between months
+
+
+#There are lots of options for plotting correlation matrices
+#e.g. https://rpubs.com/HaroldNelsonJr43/260932
+#But let's use ggcorplot.
+#Install if we don't have it.
+#Note: in quotes when installing, NOT in quotes when loading!
+install.packages('ggcorrplot')
+library(ggcorrplot)
+
+#Look here for lots of use examples
+#http://www.sthda.com/english/wiki/ggcorrplot-visualization-of-a-correlation-matrix-using-ggplot2
+
+#So e.g.
+ggcorrplot(our_cormatrix, type = "lower", outline.col = "white")
+
+#That's not very interesting because crime types are so highly correlated.
+
+#Try other examples from the website and look at the function itself.
+?ggcorrplot
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
