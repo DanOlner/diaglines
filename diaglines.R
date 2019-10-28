@@ -31,7 +31,7 @@ linesrange = (bboxvals['xmax']-startpoint)
 
 #How many lines are we breaking up the line range into?
 # numlines = ((bboxvals['xmax']-startpoint)/200) %>% as.integer()
-numlines = (linesrange/200) %>% as.integer()
+numlines = 200
 
 #Each line step in map coordinate units
 #(slightly different from inverse of above as we converted to int)
@@ -108,8 +108,6 @@ x <- tm_shape(mapdata) +
   tm_lines(lwd = 1, legend.lwd.show = F)
 
 tmap_save(tm = x, filename = 'output/shefmap.png', width = 8, height = 7)
-
-
 
 
 
